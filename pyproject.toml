@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hft-feature-evaluator"
+version = "0.1.0"
+description = "5-path feature evaluation framework for the HFT pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "hft-contracts",
+    "hft-metrics",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+evaluate = "hft_evaluator.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hft_evaluator"]

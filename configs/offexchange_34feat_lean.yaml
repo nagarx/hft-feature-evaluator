@@ -1,0 +1,37 @@
+# Off-exchange 34-feature evaluation — lean config for feasible runtime
+# Estimated: ~1.5 hours. Statistically adequate (p-resolution < 0.02).
+# Source: basic-quote-processor NVDA 60s bins, 233 days
+
+export_dir: "../data/exports/basic_nvda_60s"
+split: "train"
+holdout_days: 20
+seed: 42
+
+screening:
+  horizons: [1, 2, 3, 5, 10, 20, 30, 60]
+  bh_fdr_level: 0.05
+  ic_threshold: 0.05
+  dcor_permutations: 100       # Lean: 100 (vs 500 full). p-resolution = 0.01.
+  dcor_subsample: 1000         # Lean: 1000 (vs 3000 full). 40x faster dCor.
+  mi_permutations: 50          # Lean: 50 (vs 200 full). p-resolution = 0.02.
+  mi_k: 5
+
+stability:
+  n_bootstraps: 20             # Lean: 20 (vs 50 full). Resolution = 5%.
+  subsample_fraction: 0.8
+  stable_threshold: 0.6
+  investigate_threshold: 0.4
+
+classification:
+  strong_keep_p: 0.01
+  ic_ir_threshold: 0.5
+
+temporal:
+  rolling_window: 5
+  te_lags: [1, 2, 3]
+
+selection:
+  jmi_max_features: null
+  jmi_elbow_threshold: 0.05
+
+verbose: true

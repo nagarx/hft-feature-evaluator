@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.egg-info/
+*.pyc
+*.pyo
+.venv/
+dist/
+build/
+
+# Testing / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE / OS
+.DS_Store
+.mypy_cache/
+.ruff_cache/
+*.swp
+*.swo
+
+# Output artifacts (reproducible from configs + data)
+outputs/
+classification_table_*.json
+
+# Scripts with hardcoded absolute paths
+validate_ic_gate_v2.py

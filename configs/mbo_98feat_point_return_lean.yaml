@@ -1,0 +1,47 @@
+# E13: MBO 98-feature evaluation with point-return labels
+# Tests whether the 5-path framework detects nonlinear MBO signal with point returns
+# that E8's IC-only methodology missed.
+#
+# Data: e5_timebased_60s_point_return (derived from forward_prices, NO Rust re-export)
+# Labels: PointReturn at 8 horizons [1,2,3,5,10,20,30,60] in bps
+# Features: 98 stable MBO features (4 categorical excluded, 94 evaluable)
+# Lean config: matches E10/E11 parameters for comparability
+
+export_dir: "../data/exports/e5_timebased_60s_point_return"
+split: "train"
+holdout_days: 20
+seed: 42
+
+screening:
+  horizons: [1, 2, 3, 5, 10, 20, 30, 60]
+  bh_fdr_level: 0.05
+  ic_threshold: 0.05
+  dcor_permutations: 100
+  dcor_subsample: 1000
+  mi_permutations: 50
+  mi_k: 5
+
+stability:
+  n_bootstraps: 20
+  subsample_fraction: 0.8
+  stable_threshold: 0.6
+  investigate_threshold: 0.4
+
+classification:
+  strong_keep_p: 0.01
+  ic_ir_threshold: 0.5
+
+temporal:
+  rolling_window: 5
+  te_lags: [1, 2, 3]
+
+selection:
+  jmi_max_features: null
+  jmi_elbow_threshold: 0.05
+
+regime:
+  n_bins: 3
+  min_samples_per_bin: 30
+  conditioning_indices: null
+
+verbose: true

@@ -1,0 +1,38 @@
+# MBO 98-feature evaluation — lean config for feasible runtime
+# Export: E5 time-based 60s XNAS NVDA, 233 days
+# Labels: SmoothedReturn (NOT point-to-point — see E8 caveat in EVALUATION_REPORT)
+# Estimated: ~2.5-3 hours
+
+export_dir: "../data/exports/e5_timebased_60s"
+split: "train"
+holdout_days: 20
+seed: 42
+
+screening:
+  horizons: [10, 60, 300]        # Event-count horizons = 10/60/300 minutes at 60s bins
+  bh_fdr_level: 0.05
+  ic_threshold: 0.05
+  dcor_permutations: 100         # Lean
+  dcor_subsample: 1000           # Lean
+  mi_permutations: 50            # Lean
+  mi_k: 5
+
+stability:
+  n_bootstraps: 20               # Lean
+  subsample_fraction: 0.8
+  stable_threshold: 0.6
+  investigate_threshold: 0.4
+
+classification:
+  strong_keep_p: 0.01
+  ic_ir_threshold: 0.5
+
+temporal:
+  rolling_window: 5
+  te_lags: [1, 2, 3]
+
+selection:
+  jmi_max_features: null
+  jmi_elbow_threshold: 0.05
+
+verbose: true
