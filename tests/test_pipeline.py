@@ -169,7 +169,20 @@ class TestV2Pipeline:
         """Comprehensive v2 pipeline test — runs once, checks everything."""
         config = EvaluationConfig.from_dict(synthetic_config_dict)
         pipeline = EvaluationPipeline(config)
+
+        # Phase 4: last_profile_hash must be None before first run_v2 call
+        assert pipeline.last_profile_hash is None
+
         profiles = pipeline.run_v2()
+
+        # Phase 4: after run_v2, last_profile_hash is a 64-char hex digest
+        # and matches an independent compute_profile_hash call on the
+        # returned profiles (lock the integration point).
+        from hft_evaluator.pipeline import compute_profile_hash
+        assert pipeline.last_profile_hash is not None
+        assert len(pipeline.last_profile_hash) == 64
+        assert all(c in "0123456789abcdef" for c in pipeline.last_profile_hash)
+        assert pipeline.last_profile_hash == compute_profile_hash(profiles)
 
         # Basic structure
         assert isinstance(profiles, dict)

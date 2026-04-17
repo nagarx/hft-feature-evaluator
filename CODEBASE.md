@@ -837,12 +837,27 @@ class EvaluationPipeline:
         self.config = config
         self.loader = ExportLoader(config.export_dir, config.split)
         self.registry = FeatureRegistry(self.loader.schema)
+        # Phase 4: populated by run_v2(); read via last_profile_hash.
+        self._last_profile_hash: str | None = None
+
+    @property
+    def last_profile_hash(self) -> str | None:
+        """Phase 4: 64-char hex SHA-256 of most recent run_v2() profiles.
+
+        None before any run, after v1 run(), or after a crashed run_v2().
+        Both run() and run_v2() reset to None at entry — no stale value
+        leaks across call-mode interleave.
+        """
 
     def run(self) -> FeatureClassification:
         """v1 pipeline: 4-tier classification table."""
 
     def run_v2(self) -> dict[str, FeatureProfile]:
-        """v2 pipeline: rich FeatureProfile output."""
+        """v2 pipeline: rich FeatureProfile output.
+
+        Populates self._last_profile_hash = compute_profile_hash(profiles)
+        before return (Phase 4).
+        """
 
     def to_json(self, result: FeatureClassification, output_path: str) -> None:
         """Write v1 classification_table.json."""
@@ -851,6 +866,36 @@ class EvaluationPipeline:
                    output_path: str) -> None:
         """Write v2 feature_profiles.json."""
 ```
+
+### 9.1.1 Phase 4: `compute_profile_hash` Module-Level Helper
+
+```python
+def compute_profile_hash(profiles: dict[str, FeatureProfile]) -> str:
+    """Deterministic content hash over evaluator-produced profiles.
+
+    Hashes asdict(profile) for each profile sorted by feature name.
+    Downstream FeatureSet producers record this as
+    produced_by.source_profile_hash.
+
+    Canonical form matches hft-ops convention (dedup.py:391,
+    lineage.py:153): json.dumps(obj, sort_keys=True, default=str) →
+    SHA-256 hex. NaN/Inf floats are sanitized to None via
+    _sanitize_for_hash (strict-JSON safe + semantically correct —
+    NaN p-value = "no hypothesis test run").
+
+    Returns 64-char lowercase hex SHA-256 digest. No `sha256:` prefix
+    (matches ExperimentRecord.fingerprint; prefix reserved for
+    external identifiers like databento manifests).
+
+    Portability: stable across CPython versions + platforms, but NOT
+    byte-portable to other languages' default JSON serializers
+    (e.g., Rust serde_json uses `","` where Python default uses `", "`).
+    Consumers needing polyglot reproducibility must mirror Python's
+    whitespace convention.
+    """
+```
+
+`_sanitize_for_hash` is a private recursive helper that walks dict/list/tuple and maps non-finite floats to `None`. Tuples canonicalize to lists (JSON-identical representation).
 
 ### 9.2 v1 `run()` Step-by-Step
 
@@ -1135,6 +1180,11 @@ class SelectionCriteria:
 
     name: str = "default"
 
+    # Schema version (Phase 4, 2026-04-15). Bumped when adding hash-
+    # affecting fields. Downstream FeatureSet producers include this in
+    # `produced_by` provenance for criteria-schema compatibility.
+    criteria_schema_version: str = "1.0"
+
     # Path requirements
     min_passing_paths: int = 1
     required_paths: tuple[str, ...] = ()
@@ -1157,10 +1207,22 @@ class SelectionCriteria:
     # Horizon constraints
     allowed_horizons: tuple[int, ...] | None = None
 
+    # Holdout verification (Phase 4). When True, only features whose
+    # FeatureProfile.holdout_confirmed is True survive selection (the
+    # STRONG-KEEP criterion that passed out-of-sample). Composes
+    # AND-wise with other gates; `include_names` still bypasses.
+    require_holdout_confirmed: bool = False
+
     # Explicit inclusion/exclusion (override all other criteria)
     include_names: tuple[str, ...] | None = None   # Force-include these names
     exclude_names: tuple[str, ...] | None = None   # Force-exclude these names
 ```
+
+**Phase 4 YAML loaders** — `SelectionCriteria.from_yaml(path)` and `from_dict(d)` classmethods mirror `EvaluationConfig.from_yaml`:
+- Accept optional single-key `{criteria: {...}}` wrapper for composability with multi-section configs.
+- Strict unknown-key rejection via `_KNOWN_CRITERIA_KEYS`.
+- Tuple-field coercion (`required_paths`, `allowed_cf_classes`, `allowed_horizons`, `include_names`, `exclude_names`) with a string-guard that rejects `str`/`bytes` values to prevent silent per-char tuplification.
+- `None` values preserved for Optional-tuple fields (not coerced to empty tuple).
 
 ### 11.2 `select_features()` -- Matching Function
 
@@ -1179,7 +1241,7 @@ def select_features(
 **Matching logic** (from internal `_matches()` function):
 
 1. If `exclude_names` is set and feature name is in it, reject.
-2. If `include_names` is set, accept only if feature name is in the set (overrides ALL other criteria).
+2. If `include_names` is set, accept only if feature name is in the set (overrides ALL other criteria including the Phase 4 holdout gate).
 3. Check `min_passing_paths`: reject if fewer paths pass.
 4. Check `required_paths`: reject if any required path is missing.
 5. Check `min_combined_stability`: reject if combined_stability is below threshold.
@@ -1190,6 +1252,7 @@ def select_features(
 10. Check `max_vif`: reject if VIF exceeds threshold.
 11. Check `max_pairwise_corr`: reject if `max_pairwise_correlation` exceeds threshold.
 12. Check `allowed_horizons`: reject if `best_horizon` is not in allowed set.
+13. **Phase 4** — Check `require_holdout_confirmed`: if True, reject features whose `holdout_confirmed` is False.
 
 **Example YAML usage**:
 ```yaml

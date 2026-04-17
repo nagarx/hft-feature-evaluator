@@ -19,11 +19,15 @@ Steps (CODEBASE.md Section 9.2):
 Reference: CODEBASE.md Section 9, Framework Section 6
 """
 
+import hashlib
 import json
 import logging
+import math
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -56,6 +60,67 @@ from hft_evaluator.decision import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Phase 4: profile content-hash helper
+# ---------------------------------------------------------------------------
+
+
+# Phase 4 Batch 4c hardening (2026-04-15): ``_sanitize_for_hash`` is now a
+# backward-compat re-export from ``hft_contracts.canonical_hash``. The
+# original inline implementation was extracted to the shared package so
+# hft-ops, hft-feature-evaluator, and lob-model-trainer (parity-tested)
+# cannot drift silently. Tests that import ``_sanitize_for_hash`` directly
+# from this module continue to work.
+from hft_contracts.canonical_hash import sanitize_for_hash as _sanitize_for_hash  # noqa: E402
+
+
+def compute_profile_hash(
+    profiles: dict[str, "FeatureProfile"],
+) -> str:
+    """Compute a deterministic content hash over evaluator-produced profiles.
+
+    Hashes the un-rounded ``asdict(profile)`` for each profile, sorted by
+    feature name. Downstream FeatureSet producers (Phase 4) record this
+    as ``produced_by.source_profile_hash`` to link a FeatureSet back to
+    the exact profile snapshot that produced it.
+
+    **Determinism**: identical ``profiles`` dicts (regardless of insertion
+    order) produce identical hashes across runs, Python versions, and
+    machines. Non-finite floats are sanitized to ``None`` (see
+    ``_sanitize_for_hash``).
+
+    **Canonical form** mirrors the hft-ops ledger / provenance convention
+    (``dedup.py:391``, ``lineage.py:153``):
+    ``json.dumps(obj, sort_keys=True, default=str)`` → SHA-256 hex.
+
+    **Portability caveat**: the hash is stable across CPython versions
+    and platforms BUT is **not byte-portable** to other languages'
+    default JSON serializers (e.g., Rust ``serde_json`` emits ``","``
+    item separators where Python's default emits ``", "``). Cross-language
+    reproduction requires matching Python's whitespace convention exactly.
+    Consumers needing polyglot reproducibility must either (a) mirror
+    Python's default separators in their serializer, or (b) treat this
+    hash as a Python-local opaque identifier.
+
+    Args:
+        profiles: Mapping from feature name → ``FeatureProfile`` as
+            returned by ``EvaluationPipeline.run_v2``.
+
+    Returns:
+        64-char lowercase hex SHA-256 digest. **No** ``sha256:`` prefix
+        (matches ``ExperimentRecord.fingerprint`` and
+        ``hash_config_dict`` in hft-ops; prefix reserved for external
+        identifiers like databento manifests).
+    """
+    # Phase 4 Batch 4c hardening: delegates to the canonical-form primitives
+    # in ``hft_contracts.canonical_hash``. Byte-parity with the pre-extraction
+    # inline implementation locked by
+    # ``hft-contracts/tests/test_canonical_hash.py::TestMonorepoConventionAlignment``.
+    from hft_contracts.canonical_hash import canonical_json_blob, sha256_hex
+    ordered = {name: asdict(profiles[name]) for name in sorted(profiles)}
+    return sha256_hex(canonical_json_blob(ordered, sanitize=True))
+
+
 class EvaluationPipeline:
     """Full 5-path evaluation orchestrator with stability selection.
 
@@ -68,9 +133,37 @@ class EvaluationPipeline:
         self.config = config
         self.loader = ExportLoader(config.export_dir, config.split)
         self.registry = FeatureRegistry(self.loader.schema)
+        # Phase 4: populated at the end of every run_v2() call; None until
+        # the first successful run. Read via the `last_profile_hash`
+        # property. Used by downstream FeatureSet registry producers to
+        # record `produced_by.source_profile_hash`.
+        self._last_profile_hash: str | None = None
+
+    @property
+    def last_profile_hash(self) -> str | None:
+        """The content hash of the most recent ``run_v2`` result.
+
+        **Contract** (Phase 4):
+          - ``None`` before any pipeline call.
+          - ``None`` after a ``run()`` (v1) call — v1 produces no
+            ``FeatureProfile`` objects, so no profile hash exists.
+          - ``None`` after a ``run_v2()`` that raised mid-execution.
+          - 64-char hex SHA-256 digest after a successful ``run_v2()``.
+
+        Both ``run()`` and ``run_v2()`` reset this attribute to ``None``
+        at entry, so stale values cannot leak across call-mode interleave.
+        Downstream FeatureSet producers read this alongside the
+        ``run_v2()`` return value — pairing is always safe because the
+        reset happens before any work.
+        """
+        return self._last_profile_hash
 
     def run(self) -> FeatureClassification:
         """Execute the full evaluation pipeline."""
+        # Phase 4: reset the profile hash at entry. v1 does not produce
+        # FeatureProfile objects; a prior v2 hash would be misleading if
+        # left intact. See `last_profile_hash` property docstring.
+        self._last_profile_hash = None
         schema = self.loader.schema
         horizons = list(self.config.screening.horizons)
 
@@ -647,6 +740,10 @@ class EvaluationPipeline:
         Returns:
             dict[feature_name -> FeatureProfile]
         """
+        # Phase 4: reset the profile hash at entry so a mid-run crash
+        # leaves `last_profile_hash == None` rather than a stale value
+        # from a previous successful call. Re-set at the end on success.
+        self._last_profile_hash = None
         from dataclasses import replace as dc_replace
         import math
         from scipy.stats import rankdata
@@ -1021,6 +1118,14 @@ class EvaluationPipeline:
             )
             tier_counts[tier] = tier_counts.get(tier, 0) + 1
         self._log(f"v2: Classification: {tier_counts}")
+
+        # Phase 4: record a deterministic content hash of the profile
+        # snapshot. FeatureSet registry producers read this via the
+        # `last_profile_hash` property to populate
+        # `produced_by.source_profile_hash`. Hashing the un-rounded
+        # asdict-form is critical — to_json_v2 rounds outputs, which
+        # would break hash stability if the JSON were the hash source.
+        self._last_profile_hash = compute_profile_hash(profiles)
 
         return profiles
 

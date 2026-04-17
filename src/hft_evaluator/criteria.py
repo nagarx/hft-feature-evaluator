@@ -5,11 +5,17 @@ Replaces the hard-coded classify_feature() verdict with configurable
 criteria matching. Each experiment defines its criteria via YAML config.
 The same profiles serve multiple experiments without re-evaluation.
 
-Reference: Plan Phase 2 — SelectionCriteria
+Reference: Plan Phase 2 — SelectionCriteria. Phase 4 (2026-04-15)
+added ``from_yaml`` / ``from_dict``, ``criteria_schema_version``, and
+``require_holdout_confirmed`` to support the FeatureSet registry producer.
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
 
 from hft_evaluator.profile import FeatureProfile
 
@@ -30,12 +36,20 @@ class SelectionCriteria:
     Example YAML:
         criteria:
             name: "momentum_hft"
+            criteria_schema_version: "1.0"
             min_passing_paths: 1
             min_combined_stability: 0.6
-            exclude_contemporaneous: true
+            require_holdout_confirmed: true
     """
 
     name: str = "default"
+
+    # Schema version of this criteria declaration. Bumped on any ADDITIVE
+    # field extension that could change hash output across evaluator
+    # versions (see Phase 4 FeatureSet content-hash policy). Downstream
+    # registry producers include this in produced_by provenance so
+    # consumers can re-validate criteria compatibility.
+    criteria_schema_version: str = "1.0"
 
     # Path requirements
     min_passing_paths: int = 1
@@ -59,9 +73,124 @@ class SelectionCriteria:
     # Horizon constraints
     allowed_horizons: tuple[int, ...] | None = None
 
+    # Holdout verification. When True, only features whose
+    # ``FeatureProfile.holdout_confirmed`` is True survive selection —
+    # i.e., the STRONG-KEEP criterion that passed out-of-sample. When
+    # False (default), the holdout flag is ignored.
+    require_holdout_confirmed: bool = False
+
     # Explicit inclusion/exclusion
     include_names: tuple[str, ...] | None = None
     exclude_names: tuple[str, ...] | None = None
+
+    # -------------------------------------------------------------------
+    # YAML loaders (Phase 4)
+    # -------------------------------------------------------------------
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "SelectionCriteria":
+        """Parse SelectionCriteria from a YAML file.
+
+        Mirrors ``EvaluationConfig.from_yaml``. Unknown top-level keys
+        raise ValueError. If the YAML top level is a single-key dict
+        ``{criteria: {...}}``, the inner dict is used (supports
+        composability with multi-section config files).
+
+        Tuple-typed fields (``required_paths``, ``allowed_cf_classes``,
+        ``allowed_horizons``, ``include_names``, ``exclude_names``)
+        accept YAML sequences; values are coerced to tuples to preserve
+        frozen-dataclass hashability.
+
+        Args:
+            path: Path to YAML file.
+
+        Returns:
+            SelectionCriteria.
+
+        Raises:
+            FileNotFoundError: If path does not exist.
+            ValueError: If YAML top level is not a dict, or contains
+                unknown keys.
+        """
+        with open(path) as f:
+            raw = yaml.safe_load(f)
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"Expected YAML dict, got {type(raw).__name__} "
+                f"(path={path})"
+            )
+        # Accept single-key {criteria: {...}} wrapper for composability
+        if len(raw) == 1 and "criteria" in raw and isinstance(
+            raw["criteria"], dict
+        ):
+            raw = raw["criteria"]
+        return cls.from_dict(raw)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "SelectionCriteria":
+        """Construct from a plain dict (e.g., from yaml.safe_load).
+
+        Validates the key set and coerces list-valued tuple fields.
+
+        Raises:
+            ValueError: If unknown keys are present, or a tuple field
+                receives a non-sequence value.
+        """
+        d = dict(d)  # shallow copy
+        unknown = set(d.keys()) - _KNOWN_CRITERIA_KEYS
+        if unknown:
+            raise ValueError(
+                f"Unknown SelectionCriteria keys: {sorted(unknown)}. "
+                f"Known keys: {sorted(_KNOWN_CRITERIA_KEYS)}"
+            )
+        for field_name in _TUPLE_CRITERIA_FIELDS:
+            if field_name in d and d[field_name] is not None:
+                value = d[field_name]
+                if isinstance(value, (str, bytes)):
+                    raise ValueError(
+                        f"SelectionCriteria.{field_name} must be a sequence "
+                        f"of values (not a string), got {type(value).__name__}"
+                    )
+                try:
+                    d[field_name] = tuple(value)
+                except TypeError as exc:
+                    raise ValueError(
+                        f"SelectionCriteria.{field_name} must be iterable, "
+                        f"got {type(value).__name__}"
+                    ) from exc
+        return cls(**d)
+
+
+# Known keys used by ``SelectionCriteria.from_dict`` validation. Kept as a
+# module-level constant so future field additions fail loudly if this
+# set is not updated in lockstep (see ``criteria_schema_version``).
+_KNOWN_CRITERIA_KEYS: frozenset[str] = frozenset(
+    {
+        "name",
+        "criteria_schema_version",
+        "min_passing_paths",
+        "required_paths",
+        "min_combined_stability",
+        "min_abs_metric",
+        "max_p_value",
+        "max_cf_ratio",
+        "allowed_cf_classes",
+        "max_vif",
+        "max_pairwise_corr",
+        "allowed_horizons",
+        "require_holdout_confirmed",
+        "include_names",
+        "exclude_names",
+    }
+)
+
+_TUPLE_CRITERIA_FIELDS: tuple[str, ...] = (
+    "required_paths",
+    "allowed_cf_classes",
+    "allowed_horizons",
+    "include_names",
+    "exclude_names",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -145,5 +274,11 @@ def _matches(profile: FeatureProfile, c: SelectionCriteria) -> bool:
     if c.allowed_horizons is not None:
         if profile.best_horizon not in c.allowed_horizons:
             return False
+
+    # Holdout verification (Phase 4). Only gate when explicitly required —
+    # default behavior (False) preserves pre-Phase-4 semantics where
+    # holdout confirmation was an advisory STRONG-KEEP upgrade signal.
+    if c.require_holdout_confirmed and not profile.holdout_confirmed:
+        return False
 
     return True

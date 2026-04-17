@@ -84,7 +84,7 @@ evaluate --config configs/offexchange_34feat_lean.yaml --v2
 ## Tests
 
 ```bash
-pytest tests/ -v          # Full suite (225 tests, ~40 min due to permutation tests)
+pytest tests/ -v          # Full suite (281 tests, ~40 min due to permutation tests)
 pytest tests/ -v -k "not pipeline and not stability"  # Fast subset (~7 sec)
 ```
 

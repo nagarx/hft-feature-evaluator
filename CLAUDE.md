@@ -72,10 +72,10 @@ NPY export (train/) → loader → holdout split
 | `temporal/transfer_entropy.py` | TE screening (informational, + `_from_cache`) | §2.3, §6.2 Path 3 |
 | `regime/regime_ic.py` | Regime-conditional IC (+ `_from_cache`) | §6.2 Path 4 |
 | `stability/stability_selection.py` | v1: Paths 1+2 bootstrap. v2: per-path stability from cache | §6.3 |
-| `pipeline.py` | Orchestrates v1 `run()` + v2 `run_v2()` | §6 |
+| `pipeline.py` | Orchestrates v1 `run()` + v2 `run_v2()`. Phase 4: `compute_profile_hash(profiles)` module-level helper + `EvaluationPipeline.last_profile_hash` property (64-char hex SHA-256 of `asdict(FeatureProfile)`, NaN/Inf sanitized). Both `run()` and `run_v2()` reset `_last_profile_hash=None` at entry so no stale value leaks across v1↔v2 interleave or mid-run crashes. | §6 |
 | `decision.py` | 5-path → 4-tier classification | §6.6 |
 | `profile.py` | FeatureProfile, PathEvidence, StabilityDetail, compute_tier | — |
-| `criteria.py` | SelectionCriteria + select_features() | — |
+| `criteria.py` | `SelectionCriteria` (14 fields including `criteria_schema_version`, `require_holdout_confirmed` — Phase 4) + `select_features()` + `SelectionCriteria.from_yaml(path)` / `from_dict(d)` classmethods (mirror `EvaluationConfig.from_yaml`; accept optional `criteria:` wrapper key for composability; strict unknown-key rejection; tuple-field coercion with string-guard) | — |
 | `feedback.py` | Model feedback protocol stub (STG, LOCO, IG) | — |
 | `config.py` | YAML config parsing | — |
 | `cli.py` | CLI entry point (`evaluate --config ... [--v2]`) | — |
