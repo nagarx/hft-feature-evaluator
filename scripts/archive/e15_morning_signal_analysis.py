@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# STATUS: experimental fossil -- NOT a template for new work.
+# ARCHIVED: Phase 6 6D (2026-04-17). Preserved for historical reproducibility.
+# Per hft-rules §4 (no new ad-hoc scripts for experiments):
+#   - NEW experiments MUST be authored as hft-ops manifests under
+#     hft-ops/experiments/ OR sweep manifests under hft-ops/experiments/sweeps/
+#   - Reusable analysis logic MUST live in library modules
+#     (hft_evaluator.experiments.* / lobtrainer.experiments.*)
+#   - See scripts/archive/README.md for the replacement for this script.
+
 """
 E15 Approach 1: Morning Signal -> Afternoon Return Analysis.
 

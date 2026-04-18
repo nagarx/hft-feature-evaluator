@@ -1,3 +1,12 @@
+# STATUS: experimental fossil -- NOT a template for new work.
+# ARCHIVED: Phase 6 6D (2026-04-17). Preserved for historical reproducibility.
+# Per hft-rules §4 (no new ad-hoc scripts for experiments):
+#   - NEW experiments MUST be authored as hft-ops manifests under
+#     hft-ops/experiments/ OR sweep manifests under hft-ops/experiments/sweeps/
+#   - Reusable analysis logic MUST live in library modules
+#     (hft_evaluator.experiments.* / lobtrainer.experiments.*)
+#   - See scripts/archive/README.md for the replacement for this script.
+
 """E16: Extreme Event Conditional Return Analysis — Multi-stock.
 
 Tests whether MBO features at extreme percentiles (top/bottom 2-10%) predict
