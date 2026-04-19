@@ -2,6 +2,15 @@
 
 Profile-based feature characterization engine for HFT microstructure data. Evaluates features across 5 statistical paths with stability selection, holdout validation, and configurable selection criteria.
 
+**Version**: 0.1.0 | **Tests**: 298 (across 23 test files) | **Last Updated**: 2026-04-20 (Phase 7 Stage 7.4 Round 4)
+
+## Quick Links
+
+- **Pre-training IC gate library** (mandatory per hft-rules §13): `from hft_evaluator.fast_gate import run_fast_gate, GateThresholds`. Used by `hft-ops::ValidationRunner` as a direct library import (not subprocess).
+- **FeatureSet registry producer** (Phase 4 Batch 4a): `hft-ops evaluate --config <evaluator.yaml> --criteria <criteria.yaml> --save-feature-set <name>_v1 --applies-to-assets NVDA --applies-to-horizons 10` → writes `contracts/feature_sets/<name>_v1.json`.
+- **Off-exchange gate** (Phase 5 Preview library port): `from hft_evaluator.experiments.offexchange_gate import run_offexchange_gate, GateCheckConfig, GateCheckResult`.
+- **Archived fossils** (Phase 6 6D): 7 experimental scripts under `scripts/archive/` — NOT templates. See `scripts/archive/README.md` for replacement paths per hft-rules §4.
+
 ## Architecture
 
 Two pipeline modes:
@@ -84,7 +93,7 @@ evaluate --config configs/offexchange_34feat_lean.yaml --v2
 ## Tests
 
 ```bash
-pytest tests/ -v          # Full suite (281 tests, ~40 min due to permutation tests)
+pytest tests/ -v          # Full suite (298 tests, ~40 min due to permutation tests)
 pytest tests/ -v -k "not pipeline and not stability"  # Fast subset (~7 sec)
 ```
 

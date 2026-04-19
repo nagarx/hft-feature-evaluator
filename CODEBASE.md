@@ -1,7 +1,9 @@
 # hft-feature-evaluator: Codebase Technical Reference
 
-> **Version**: 0.2.0
-> **Last Updated**: April 7, 2026
+> **Version**: 0.1.0 | **Tests**: 298 (across 23 test files) | **Last Updated**: 2026-04-20 (Phase 7 Stage 7.4 Round 4)
+>
+> **Phase 7 state (cumulative)**: (a) Phase 2b `fast_gate.py` library — `run_fast_gate()` entry point + `GateReport`/`GateThresholds`; consumed by `hft_ops.stages.validation::ValidationRunner` as library import. (b) Phase 4 Batch 4a FeatureSet producer primitives — `EvaluationPipeline.last_profile_hash` + module-level `compute_profile_hash(profiles)` + `SelectionCriteria.from_yaml/from_dict` + `criteria_schema_version` field + `_KNOWN_CRITERIA_KEYS` strict-rejection frozenset. Consumed by `hft_ops.feature_sets.producer::produce_feature_set` (Phase 4 Batch 4b lives hft-ops-side). (c) Phase 5 Preview `experiments/offexchange_gate.py` library port with schema `offexchange_gate_check_v2` + thin deprecation shim at `scripts/offexchange_gate_check.py`. (d) Phase 6 6D — 7 experimental-fossil scripts archived to `scripts/archive/` with fossil headers + migration map per hft-rules §4 (~5,969 LOC moved). (e) Phase 7 Stage 7.4 Round 4 — `GateReport` docstring now references `ExperimentRecord.gate_reports["validation"]` (Phase 7 Round 4 Option C generic `gate_reports` field); `verdict` field unchanged for back-compat, hft-ops validation adapter injects lowercased `status` at captured_metrics boundary (Phase 7 Round 5).
+>
 > **Purpose**: Feature evaluation implementing the 5-path decision framework
 > **Framework**: `feature_evaluation_research/FEATURE_EVALUATION_FRAMEWORK.md` (741 lines, authoritative reference)
 > **Dependencies**: hft-contracts, hft-metrics, numpy, pyyaml, scipy
@@ -1647,7 +1649,7 @@ evaluate --config configs/mbo_98feat_lean.yaml --output mbo_classification.json
 
 ## 18. Testing Strategy
 
-**Test count**: 18 test files.
+**Test count**: 298 tests across 23 test files (verified via `pytest --collect-only -q` at HEAD `a1a2cef`). Phase 2b/4/5 added test files: `test_fast_gate.py` (Phase 2b IC gate library), `test_profile_hash.py` (Phase 4 Batch 4a content-hash primitives), `test_experiments_offexchange_gate.py` (Phase 5 Preview library port), `test_criteria.py` (Phase 4 SelectionCriteria YAML parser + strict unknown-key rejection).
 
 | Test File | What It Validates |
 |---|---|
