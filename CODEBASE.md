@@ -1734,4 +1734,4 @@ TE is marked `is_informational=True` in v2 because it structurally cannot surviv
 
 ---
 
-*Last updated: April 7, 2026*
+*Last updated: 2026-04-20 (Phase 7 Stage 7.4 Round 4 closeout) — matches banner at top of file.*
