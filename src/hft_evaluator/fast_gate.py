@@ -113,7 +113,9 @@ class GateReport:
     """Structured output of one fast_gate run.
 
     Persisted to ``gate_report.json`` and stored in the experiment ledger
-    as ``validation_report`` for cross-experiment comparison.
+    under ``ExperimentRecord.gate_reports["validation"]`` (Phase 7 Stage 7.4
+    Round 4, 2026-04-20 — previously nested under the ``"validation_report"``
+    captured_metrics key).
     """
 
     verdict: str            # "PASS" or "FAIL" (factual; caller applies on_fail)
