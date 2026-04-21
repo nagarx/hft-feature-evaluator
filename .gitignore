@@ -25,3 +25,4 @@ classification_table_*.json
 
 # Scripts with hardcoded absolute paths
 validate_ic_gate_v2.py
+_deps/

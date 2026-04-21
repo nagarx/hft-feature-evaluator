@@ -1,0 +1,98 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs on the same ref when a new commit lands. Saves
+# runner minutes when a developer force-pushes a fix over a failing run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimum GITHUB_TOKEN permissions — OpenSSF least-privilege. This workflow
+# reads 3 repos (this + hft-contracts + hft-metrics siblings) and writes no
+# artifacts, so `contents: read` is sufficient. Sibling repos are public.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    # Timeout cap (Phase V.A.0 audit convention) — 20 min vs 360-min default.
+    # Observed local CI duration ~1-2 min; 20 min is ~10× margin for install
+    # + network + cache miss slack.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout (hft-feature-evaluator)
+        uses: actions/checkout@v4
+
+      # Sibling checkouts BEFORE setup-python's cache — see root CLAUDE.md
+      # §"Inter-Repo Topology". hft-feature-evaluator's pyproject.toml
+      # declares BOTH `hft-contracts` AND `hft-metrics` as bare-name deps
+      # (neither published to PyPI as of 2026-04-21); pip's default PyPI
+      # resolver would fail without the sibling-install pattern.
+      - name: Checkout hft-contracts
+        uses: actions/checkout@v4
+        with:
+          repository: nagarx/hft-contracts
+          path: _deps/hft-contracts
+          ref: main
+
+      - name: Checkout hft-metrics
+        uses: actions/checkout@v4
+        with:
+          repository: nagarx/hft-metrics
+          path: _deps/hft-metrics
+          ref: main
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install (siblings first, then this repo with dev extras)
+        # Install order: sibling editables first so pip sees them already
+        # satisfying the bare-name requirements; then install
+        # hft-feature-evaluator itself with the dev extra (pytest,
+        # pytest-cov). numpy + scipy + pyyaml flow from the dev install.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e _deps/hft-contracts
+          pip install -e _deps/hft-metrics
+          pip install -e '.[dev]'
+          # Log resolved versions — hft_contracts + hft_metrics versions
+          # aid cross-version drift triage (e.g., Phase V.B.4a bumped
+          # hft_metrics to 0.1.6 which tightened pairwise bootstrap
+          # correctness + is a transitive dep of some evaluator primitives).
+          python -c "import hft_contracts, hft_metrics, numpy, sys; print(f'Python {sys.version.split()[0]}  |  hft_contracts {hft_contracts.__version__}  |  hft_metrics {hft_metrics.__version__}  |  numpy {numpy.__version__}')"
+
+      - name: Run tests
+        # Expected on fresh CI (2026-04-21): 298 passing per root CLAUDE.md
+        # Module Technical Map. The suite exercises 20 modules across 5
+        # evaluation paths; no external data / subprocess / GPU required.
+        # `--ignore=_deps` prevents pytest from collecting tests in the
+        # sibling-repo checkouts under _deps/hft-contracts/ +
+        # _deps/hft-metrics/ (each runs its own CI workflow; this workflow
+        # only exercises hft-feature-evaluator's own suite).
+        run: pytest -q --tb=short --ignore=_deps
+
+      - name: Lint (non-blocking)
+        # Informational — hft-feature-evaluator has no [tool.ruff] config
+        # in pyproject.toml yet; gating is a follow-up PR. `continue-on-error`
+        # keeps the exit code visible (yellow/red) rather than silenced to
+        # green by `|| true`.
+        continue-on-error: true
+        run: |
+          pip install ruff
+          ruff check src tests
