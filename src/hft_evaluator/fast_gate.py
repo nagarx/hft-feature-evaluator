@@ -46,6 +46,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
+from hft_contracts.provenance import hash_file
 from hft_evaluator.data.loader import ExportLoader, ExportSchema
 
 logger = logging.getLogger(__name__)
@@ -384,17 +385,25 @@ def _compute_walk_forward_stability(
     return mean_abs / std, n_folds_eff, per_fold_ic
 
 
-def _hash_file(path: Path) -> str:
-    """SHA-256 of a file's bytes. Returns '' if the file doesn't exist."""
-    import hashlib
-
-    if not path.exists():
-        return ""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return f"sha256:{h.hexdigest()}"
+# V.1.5 A1 (2026-04-23): SSoT consolidation — retired the local
+# `_hash_file` helper. Previously this module inlined a 3rd divergent copy
+# of SHA-256 file hashing (alongside hft_contracts.provenance.hash_file
+# and hft_ops.ledger.statistical_compare._sha256_file) with TWO distinct
+# drifts: (a) `sha256:` prefix on the return value, (b) 1MB chunk size.
+# The prefix was decorative — no consumer reads or compares it (grep across
+# hft-feature-evaluator + hft-ops + lob-model-trainer + lob-backtester
+# confirms `profile_ref_hash` is a pure write-only observability field on
+# GateReport, serialized to JSON for human traceability). The 1MB chunk
+# was perf-micro-optimization that degrades memory bounds for large files.
+# Migration uses the canonical `hft_contracts.provenance.hash_file(...)`
+# — bare-hex return (aligns with monorepo convention: `compute_profile_hash`
+# ALREADY returns bare hex, locked by test_profile_hash.py:175 + parallel
+# test_feature_sets_hashing.py:87) and 8KB streaming chunks.
+#
+# NOTE: pre-V.1.5 GateReport artifacts on disk carry the `sha256:` prefix;
+# post-V.1.5 artifacts carry bare hex. The field is never compared across
+# time so this is forward-compatible. Operators manually grepping old
+# gate reports for `sha256:` will find only pre-V.1.5 artifacts.
 
 
 # ---------------------------------------------------------------------------
@@ -528,10 +537,13 @@ def run_fast_gate(
         else "gates failed: " + "; ".join(failure_reasons)
     )
 
-    # Hash profile_ref if provided (for traceability)
+    # Hash profile_ref if provided (for traceability). Returns bare hex or
+    # empty string on missing. V.1.5 A1 uses hft_contracts SSoT; default
+    # `missing_ok=True` preserves legacy "empty string on missing" behavior
+    # (profile_ref is optional; a missing file is not a bug, just no trace).
     profile_hash = ""
     if profile_ref:
-        profile_hash = _hash_file(Path(profile_ref))
+        profile_hash = hash_file(Path(profile_ref))
 
     duration = time.monotonic() - t0
 
